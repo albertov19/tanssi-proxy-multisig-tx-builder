@@ -1,0 +1,29 @@
+{
+  "name": "tanssi-proxy-multisig-tx-builder",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "next dev",
+    "start": "next build && next start",
+    "export": "next build && next export"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@netlify/plugin-nextjs": "^5.12.0",
+    "@polkadot/api": "^16.4.3",
+    "@polkadot/types": "^16.4.3",
+    "@polkadot/util": "^13.5.4",
+    "@polkadot/util-crypto": "^13.5.4",
+    "@types/react": "^18.3.3",
+    "async": "^3.2.3",
+    "next": "^14.2.4",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "semantic-ui-react": "^2.0.3",
+    "typescript": "^5.4.5"
+  }
+}
