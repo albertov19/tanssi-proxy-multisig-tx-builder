@@ -51,7 +51,7 @@ const tanssiMultisigTxBuilder = () => {
       <Container>
         <Head>
           <title>Tanssi Multisig Proxy Tx Builder</title>
-          <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+          <link rel="icon" type="image/svg" sizes="32x32" href="/favicon.svg" />
           <link
             rel="stylesheet"
             href="//cdn.jsdelivr.net/npm/semantic-ui@2.4.2/dist/semantic.min.css"
