@@ -107,7 +107,7 @@ const tanssiMultisigTxBuilder = () => {
         <p>
           Don't judge the code :) as it is for demonstration purposes only. You
           can check the source code &nbsp;
-          <a href="https://github.com/albertov19/localAsset-dashboard">here</a>
+          <a href="https://github.com/albertov19/tanssi-proxy-multisig-tx-builder">here</a>
         </p>
         <br />
       </Container>
