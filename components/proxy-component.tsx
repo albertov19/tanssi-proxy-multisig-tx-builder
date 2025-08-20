@@ -61,28 +61,29 @@ const ProxyComponent = ({ network }) => {
       // Transform Decimals
       const decimals = api.registry.chainDecimals[0];
       
-      // Create transfer calls for each transfer
-      const transferCalls = transfers.map(transfer => {
-        const amountInUnits = BigInt(transfer.amount) * BigInt(10 ** decimals);
-        return api.tx.balances.transferKeepAlive(transfer.destAccount, amountInUnits);
-      });
-
       let tx;
       if (transfers.length === 1) {
         // Single transfer - direct proxy call
+        const amountInUnits = BigInt(transfers[0].amount) * BigInt(10 ** decimals);
+        const transferCall = api.tx.balances.transferKeepAlive(transfers[0].destAccount, amountInUnits);
         tx = await api.tx.proxy.proxy(
           proxyAccount,
           null,
-          transferCalls[0]
+          transferCall
         );
       } else {
-        // Multiple transfers - use utility.batch
-        const batchCall = api.tx.utility.batch(transferCalls);
-        tx = await api.tx.proxy.proxy(
-          proxyAccount,
-          null,
-          batchCall
-        );
+        // Multiple transfers - wrap each transfer in proxy.proxy, then batch all proxy calls
+        const proxyCalls = transfers.map(transfer => {
+          const amountInUnits = BigInt(transfer.amount) * BigInt(10 ** decimals);
+          const transferCall = api.tx.balances.transferKeepAlive(transfer.destAccount, amountInUnits);
+          return api.tx.proxy.proxy(
+            proxyAccount,
+            null,
+            transferCall
+          );
+        });
+        
+        tx = api.tx.utility.batch(proxyCalls);
       }
 
       setCalldata(tx.method.toHex());
