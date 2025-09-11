@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from "react";
-import { Container, Input, Form, TextArea, Header, Loader, Button, Grid, Icon } from "semantic-ui-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Container, Input, Form, TextArea, Header, Loader, Button, Grid, Icon, Message } from "semantic-ui-react";
 import { subProvider } from "../web3/polkadotAPI";
 
 interface Transfer {
@@ -15,6 +15,8 @@ const ProxyComponent = ({ network }) => {
   const [err, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [nextId, setNextId] = useState(2);
+  const [csvUploadMessage, setCsvUploadMessage] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const chains = {
     tanssi: {
@@ -48,6 +50,86 @@ const ProxyComponent = ({ network }) => {
     setTransfers(transfers.map(t => 
       t.id === id ? { ...t, [field]: value } : t
     ));
+  };
+
+  const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setCsvUploadMessage("");
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const lines = text.trim().split('\n');
+        
+        if (lines.length === 0) {
+          setCsvUploadMessage("CSV file is empty");
+          return;
+        }
+
+        const newTransfers: Transfer[] = [];
+        let currentId = 1;
+        let hasErrors = false;
+        
+        lines.forEach((line, index) => {
+          const [address, amount] = line.split(',').map(item => item.trim());
+          
+          // Skip header row if it matches expected header format
+          if (index === 0 && address.toLowerCase() === 'address' && amount.toLowerCase() === 'amount') {
+            return;
+          }
+          
+          if (!address || !amount) {
+            setCsvUploadMessage(`Error on line ${index + 1}: Invalid format. Expected "address,amount"`);
+            hasErrors = true;
+            return;
+          }
+          
+          // Basic validation for amount (should be a number)
+          if (isNaN(Number(amount))) {
+            setCsvUploadMessage(`Error on line ${index + 1}: Amount "${amount}" is not a valid number`);
+            hasErrors = true;
+            return;
+          }
+          
+          newTransfers.push({
+            id: currentId++,
+            destAccount: address,
+            amount: amount
+          });
+        });
+
+        if (!hasErrors) {
+          setTransfers(newTransfers);
+          setNextId(currentId);
+          setCsvUploadMessage(`Successfully imported ${newTransfers.length} transfers from CSV`);
+        }
+        
+      } catch (error) {
+        setCsvUploadMessage("Error reading CSV file: " + error.message);
+      }
+    };
+    
+    reader.onerror = () => {
+      setCsvUploadMessage("Error reading file");
+    };
+    
+    reader.readAsText(file);
+    
+    // Clear the file input so the same file can be uploaded again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const clearAllTransfers = () => {
+    setTransfers([{ id: 1, destAccount: "", amount: "" }]);
+    setNextId(2);
+    setCsvUploadMessage("");
+    setCalldata("");
+    setErrorMessage("");
   };
 
   const constructCall = async () => {
@@ -109,6 +191,44 @@ const ProxyComponent = ({ network }) => {
         <Header as="h4" style={{ marginTop: 20, marginBottom: 10 }}>
           Transfers
         </Header>
+        
+        {/* CSV Upload Section */}
+        <div style={{ marginBottom: 20, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 5 }}>
+          <Header as="h5" style={{ marginTop: 0, marginBottom: 10 }}>
+            Import from CSV
+          </Header>
+          <p style={{ fontSize: '12px', color: '#666', marginBottom: 10 }}>
+            Upload a CSV file with format: address,amount (one transfer per line). Optional header row is supported.
+          </p>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+            <div>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleCSVUpload}
+                ref={fileInputRef}
+                style={{ marginBottom: 5 }}
+              />
+            </div>
+            <Button 
+              size="small" 
+              onClick={clearAllTransfers}
+              title="Clear all transfers and start fresh"
+            >
+              Clear All
+            </Button>
+          </div>
+          {csvUploadMessage && (
+            <Message 
+              positive={csvUploadMessage.includes('Successfully')}
+              negative={csvUploadMessage.includes('Error')}
+              size="small"
+              style={{ marginTop: 10 }}
+            >
+              {csvUploadMessage}
+            </Message>
+          )}
+        </div>
         
         {transfers.map((transfer, index) => (
           <div key={transfer.id} style={{ marginBottom: 15, padding: 15, border: '1px solid #e0e0e0', borderRadius: 5 }}>

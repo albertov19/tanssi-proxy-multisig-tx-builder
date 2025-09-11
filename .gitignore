@@ -3,3 +3,6 @@
 # dependencies
 /node_modules
 /.next
+
+# Ignore kluster.ai Verify Code rules
+.github/instructions/kluster-code-verify.instructions.md
