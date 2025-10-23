@@ -285,7 +285,7 @@ const ProxyComponent = ({ network }: { network: NetworkKey }) => {
 
       // decimals (e.g., 12) -> use BigInt-safe exponent
       const decimals: number = api.registry.chainDecimals[0];
-      const factor = 10n ** BigInt(decimals);
+      const factor = BigInt(10) ** BigInt(decimals);
 
       let tx;
       if (transfers.length === 1) {
