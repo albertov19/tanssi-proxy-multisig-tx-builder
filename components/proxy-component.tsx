@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Container, Input, Form, TextArea, Header, Loader, Button, Grid, Icon, Message } from "semantic-ui-react";
+import {
+  Container,
+  Input,
+  Form,
+  TextArea,
+  Header,
+  Loader,
+  Button,
+  Grid,
+  Icon,
+  Message,
+} from "semantic-ui-react";
 import { subProvider } from "../web3/polkadotAPI";
 
 interface Transfer {
@@ -8,9 +19,129 @@ interface Transfer {
   amount: string;
 }
 
-const ProxyComponent = ({ network }) => {
+type NetworkKey = "tanssi"; // extend if you add more networks
+
+const chains: Record<NetworkKey, { ws: string; token: string }> = {
+  tanssi: {
+    ws: "wss://services.tanssi-mainnet.network/tanssi",
+    token: "TANSSI",
+  },
+};
+
+// simple debounce hook (value -> debouncedValue after delay)
+function useDebounce<T>(value: T, delay = 500) {
+  const [debounced, setDebounced] = React.useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(id);
+  }, [value, delay]);
+  return debounced;
+}
+
+function TransferRow({
+  transfer,
+  updateTransfer,
+  removeTransfer,
+  tokenLabel,
+  canRemove,
+}: {
+  transfer: Transfer;
+  updateTransfer: (id: number, field: "destAccount" | "amount", value: string) => void;
+  removeTransfer: (id: number) => void;
+  tokenLabel: string;
+  canRemove: boolean;
+}) {
+  // local, immediate typing state
+  const [localDest, setLocalDest] = React.useState(transfer.destAccount ?? "");
+  const [localAmount, setLocalAmount] = React.useState(transfer.amount ?? "");
+
+  // keep local state in sync if parent overwrites (CSV import / clear)
+  useEffect(() => setLocalDest(transfer.destAccount ?? ""), [transfer.id, transfer.destAccount]);
+  useEffect(() => setLocalAmount(transfer.amount ?? ""), [transfer.id, transfer.amount]);
+
+  // debounce the local values
+  const debouncedDest = useDebounce(localDest, 300);
+  const debouncedAmount = useDebounce(localAmount, 300);
+
+  // push debounced dest to parent only when changed
+  useEffect(() => {
+    if (debouncedDest !== transfer.destAccount) {
+      updateTransfer(transfer.id, "destAccount", debouncedDest);
+    }
+  }, [debouncedDest, transfer.id, transfer.destAccount, updateTransfer]);
+
+  // push debounced amount to parent only when changed
+  useEffect(() => {
+    if (debouncedAmount !== transfer.amount) {
+      updateTransfer(transfer.id, "amount", debouncedAmount);
+    }
+  }, [debouncedAmount, transfer.id, transfer.amount, updateTransfer]);
+
+  return (
+    <div
+      style={{
+        marginBottom: 15,
+        padding: 15,
+        border: "1px solid #e0e0e0",
+        borderRadius: 5,
+      }}
+    >
+      <Grid columns={3} stackable>
+        <Grid.Column width={7}>
+          <Form.Field>
+            <label>Destination Account</label>
+            <Input
+              placeholder="Enter Destination Account..."
+              value={localDest}
+              onChange={(e) => setLocalDest(e.target.value)}
+              onKeyDown={(e) => {
+                // prevent form submit (which clears the row)
+                if (e.key === "Enter") e.preventDefault();
+              }}
+            />
+          </Form.Field>
+        </Grid.Column>
+
+        <Grid.Column width={7}>
+          <Form.Field>
+            <label>Amount</label>
+            <Input
+              placeholder="Enter Amount..."
+              value={localAmount}
+              label={tokenLabel}
+              type="text"
+              inputMode="decimal"
+              onChange={(e) => setLocalAmount(e.target.value)}
+              onKeyDown={(e) => {
+                // prevent form submit (which clears the row)
+                if (e.key === "Enter") e.preventDefault();
+              }}
+            />
+          </Form.Field>
+        </Grid.Column>
+
+        <Grid.Column width={2}>
+          {canRemove && (
+            <Button
+              icon
+              color="red"
+              onClick={() => removeTransfer(transfer.id)}
+              style={{ marginTop: 25 }}
+            >
+              <Icon name="trash" />
+            </Button>
+          )}
+        </Grid.Column>
+      </Grid>
+    </div>
+  );
+}
+
+const ProxyComponent = ({ network }: { network: NetworkKey }) => {
   const [proxyAccount, setProxyAccount] = useState("");
-  const [transfers, setTransfers] = useState<Transfer[]>([{ id: 1, destAccount: "", amount: "" }]);
+  const [transfers, setTransfers] = useState<Transfer[]>([
+    { id: 1, destAccount: "", amount: "" },
+  ]);
   const [calldata, setCalldata] = useState("");
   const [err, setErrorMessage] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,38 +149,42 @@ const ProxyComponent = ({ network }) => {
   const [csvUploadMessage, setCsvUploadMessage] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const chains = {
-    tanssi: {
-      ws: "wss://services.tanssi-mainnet.network/tanssi",
-      token: "TANSSI"
-    },
-    // ...add more networks if needed
-  };
-
-  // Effect runs when proxy account and all transfers have values
+  // Rebuild calldata when inputs are fully filled and actually changed
   useEffect(() => {
-    const allTransfersValid = transfers.every(t => t.destAccount && t.amount);
+    const allTransfersValid = transfers.every((t) => t.destAccount && t.amount);
     if (proxyAccount && transfers.length > 0 && allTransfersValid) {
       constructCall();
+    } else {
+      setCalldata(""); // clear if not all valid
     }
-    // eslint-disable-next-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proxyAccount, transfers]);
 
   const addTransfer = () => {
-    setTransfers([...transfers, { id: nextId, destAccount: "", amount: "" }]);
-    setNextId(nextId + 1);
+    setTransfers((prev) => [...prev, { id: nextId, destAccount: "", amount: "" }]);
+    setNextId((n) => n + 1);
   };
 
   const removeTransfer = (id: number) => {
-    if (transfers.length > 1) {
-      setTransfers(transfers.filter(t => t.id !== id));
-    }
+    setTransfers((prev) => (prev.length > 1 ? prev.filter((t) => t.id !== id) : prev));
   };
 
-  const updateTransfer = (id: number, field: 'destAccount' | 'amount', value: string) => {
-    setTransfers(transfers.map(t => 
-      t.id === id ? { ...t, [field]: value } : t
-    ));
+  const updateTransfer = (
+    id: number,
+    field: "destAccount" | "amount",
+    value: string
+  ) => {
+    setTransfers((prev) => {
+      // avoid unnecessary state updates if value didn't change
+      let changed = false;
+      const next = prev.map((t) => {
+        if (t.id !== id) return t;
+        if (t[field] === value) return t;
+        changed = true;
+        return { ...t, [field]: value };
+      });
+      return changed ? next : prev;
+    });
   };
 
   const handleCSVUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -57,13 +192,13 @@ const ProxyComponent = ({ network }) => {
     if (!file) return;
 
     setCsvUploadMessage("");
-    
+
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const text = e.target?.result as string;
-        const lines = text.trim().split('\n');
-        
+        const lines = text.trim().split("\n");
+
         if (lines.length === 0) {
           setCsvUploadMessage("CSV file is empty");
           return;
@@ -72,32 +207,41 @@ const ProxyComponent = ({ network }) => {
         const newTransfers: Transfer[] = [];
         let currentId = 1;
         let hasErrors = false;
-        
+
         lines.forEach((line, index) => {
-          const [address, amount] = line.split(',').map(item => item.trim());
-          
-          // Skip header row if it matches expected header format
-          if (index === 0 && address.toLowerCase() === 'address' && amount.toLowerCase() === 'amount') {
+          const [addressRaw, amountRaw] = line.split(",").map((item) => (item ?? "").trim());
+          const address = addressRaw ?? "";
+          const amount = amountRaw ?? "";
+
+          // header?
+          if (
+            index === 0 &&
+            address.toLowerCase() === "address" &&
+            amount.toLowerCase() === "amount"
+          ) {
             return;
           }
-          
+
           if (!address || !amount) {
-            setCsvUploadMessage(`Error on line ${index + 1}: Invalid format. Expected "address,amount"`);
+            setCsvUploadMessage(
+              `Error on line ${index + 1}: Invalid format. Expected "address,amount"`
+            );
             hasErrors = true;
             return;
           }
-          
-          // Basic validation for amount (should be a number)
+
           if (isNaN(Number(amount))) {
-            setCsvUploadMessage(`Error on line ${index + 1}: Amount "${amount}" is not a valid number`);
+            setCsvUploadMessage(
+              `Error on line ${index + 1}: Amount "${amount}" is not a valid number`
+            );
             hasErrors = true;
             return;
           }
-          
+
           newTransfers.push({
             id: currentId++,
             destAccount: address,
-            amount: amount
+            amount,
           });
         });
 
@@ -106,21 +250,20 @@ const ProxyComponent = ({ network }) => {
           setNextId(currentId);
           setCsvUploadMessage(`Successfully imported ${newTransfers.length} transfers from CSV`);
         }
-        
-      } catch (error) {
-        setCsvUploadMessage("Error reading CSV file: " + error.message);
+      } catch (error: any) {
+        setCsvUploadMessage("Error reading CSV file: " + (error?.message ?? String(error)));
       }
     };
-    
+
     reader.onerror = () => {
       setCsvUploadMessage("Error reading file");
     };
-    
+
     reader.readAsText(file);
-    
-    // Clear the file input so the same file can be uploaded again
+
+    // allow re-upload of the same file
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
   };
 
@@ -135,42 +278,36 @@ const ProxyComponent = ({ network }) => {
   const constructCall = async () => {
     setErrorMessage("");
     setLoading(true);
-    setCalldata(""); // clear previous calldata while loading
+    setCalldata("");
 
     try {
       const api = (await subProvider(chains[network].ws)) as any;
 
-      // Transform Decimals
-      const decimals = api.registry.chainDecimals[0];
-      
+      // decimals (e.g., 12) -> use BigInt-safe exponent
+      const decimals: number = api.registry.chainDecimals[0];
+      const factor = 10n ** BigInt(decimals);
+
       let tx;
       if (transfers.length === 1) {
-        // Single transfer - direct proxy call
-        const amountInUnits = BigInt(transfers[0].amount) * BigInt(10 ** decimals);
-        const transferCall = api.tx.balances.transferKeepAlive(transfers[0].destAccount, amountInUnits);
-        tx = await api.tx.proxy.proxy(
-          proxyAccount,
-          null,
-          transferCall
+        const amountInUnits = BigInt(transfers[0].amount) * factor;
+        const transferCall = api.tx.balances.transferKeepAlive(
+          transfers[0].destAccount,
+          amountInUnits
         );
+        tx = await api.tx.proxy.proxy(proxyAccount, null, transferCall);
       } else {
-        // Multiple transfers - wrap each transfer in proxy.proxy, then batch all proxy calls
-        const proxyCalls = transfers.map(transfer => {
-          const amountInUnits = BigInt(transfer.amount) * BigInt(10 ** decimals);
-          const transferCall = api.tx.balances.transferKeepAlive(transfer.destAccount, amountInUnits);
-          return api.tx.proxy.proxy(
-            proxyAccount,
-            null,
-            transferCall
-          );
+        const proxyCalls = transfers.map((t) => {
+          const amountInUnits = BigInt(t.amount) * factor;
+          const transferCall = api.tx.balances.transferKeepAlive(t.destAccount, amountInUnits);
+          return api.tx.proxy.proxy(proxyAccount, null, transferCall);
         });
-        
+
         tx = api.tx.utility.batch(proxyCalls);
       }
 
       setCalldata(tx.method.toHex());
-    } catch (err) {
-      setErrorMessage(err.message);
+    } catch (err: any) {
+      setErrorMessage(err?.message ?? String(err));
     } finally {
       setLoading(false);
     }
@@ -178,29 +315,44 @@ const ProxyComponent = ({ network }) => {
 
   return (
     <Container style={{ maxWidth: 700, marginTop: 30 }}>
-      <Form>
+      <Form
+        onSubmit={(e) => {
+          // prevent enter key from submitting & clearing inputs
+          e.preventDefault();
+        }}
+      >
         <Form.Field>
           <label>Proxy Account</label>
           <Input
             placeholder="Enter Proxy Account..."
             value={proxyAccount}
             onChange={(e) => setProxyAccount(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.preventDefault();
+            }}
           />
         </Form.Field>
-        
+
         <Header as="h4" style={{ marginTop: 20, marginBottom: 10 }}>
           Transfers
         </Header>
-        
+
         {/* CSV Upload Section */}
-        <div style={{ marginBottom: 20, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 5 }}>
+        <div
+          style={{
+            marginBottom: 20,
+            padding: 15,
+            backgroundColor: "#f8f9fa",
+            borderRadius: 5,
+          }}
+        >
           <Header as="h5" style={{ marginTop: 0, marginBottom: 10 }}>
             Import from CSV
           </Header>
-          <p style={{ fontSize: '12px', color: '#666', marginBottom: 10 }}>
+          <p style={{ fontSize: "12px", color: "#666", marginBottom: 10 }}>
             Upload a CSV file with format: address,amount (one transfer per line). Optional header row is supported.
           </p>
-          <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
             <div>
               <input
                 type="file"
@@ -210,18 +362,14 @@ const ProxyComponent = ({ network }) => {
                 style={{ marginBottom: 5 }}
               />
             </div>
-            <Button 
-              size="small" 
-              onClick={clearAllTransfers}
-              title="Clear all transfers and start fresh"
-            >
+            <Button size="small" onClick={clearAllTransfers} title="Clear all transfers and start fresh">
               Clear All
             </Button>
           </div>
           {csvUploadMessage && (
-            <Message 
-              positive={csvUploadMessage.includes('Successfully')}
-              negative={csvUploadMessage.includes('Error')}
+            <Message
+              positive={csvUploadMessage.includes("Successfully")}
+              negative={csvUploadMessage.includes("Error")}
               size="small"
               style={{ marginTop: 10 }}
             >
@@ -229,65 +377,44 @@ const ProxyComponent = ({ network }) => {
             </Message>
           )}
         </div>
-        
-        {transfers.map((transfer, index) => (
-          <div key={transfer.id} style={{ marginBottom: 15, padding: 15, border: '1px solid #e0e0e0', borderRadius: 5 }}>
-            <Grid columns={3} stackable>
-              <Grid.Column width={7}>
-                <Form.Field>
-                  <label>Destination Account</label>
-                  <Input
-                    placeholder="Enter Destination Account..."
-                    value={transfer.destAccount}
-                    onChange={(e) => updateTransfer(transfer.id, 'destAccount', e.target.value)}
-                  />
-                </Form.Field>
-              </Grid.Column>
-              <Grid.Column width={7}>
-                <Form.Field>
-                  <label>Amount</label>
-                  <Input
-                    placeholder="Enter Amount..."
-                    value={transfer.amount}
-                    label={chains[network]?.token}
-                    onChange={(e) => updateTransfer(transfer.id, 'amount', e.target.value)}
-                  />
-                </Form.Field>
-              </Grid.Column>
-              <Grid.Column width={2}>
-                {transfers.length > 1 && (
-                  <Button 
-                    icon 
-                    color="red" 
-                    onClick={() => removeTransfer(transfer.id)}
-                    style={{ marginTop: 25 }}
-                  >
-                    <Icon name="trash" />
-                  </Button>
-                )}
-              </Grid.Column>
-            </Grid>
-          </div>
+
+        {transfers.map((t) => (
+          <TransferRow
+            key={t.id}
+            transfer={t}
+            updateTransfer={updateTransfer}
+            removeTransfer={removeTransfer}
+            tokenLabel={chains[network]?.token}
+            canRemove={transfers.length > 1}
+          />
         ))}
-        
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, marginBottom: 20 }}>
-          <Button 
-            icon 
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: 10,
+            marginBottom: 20,
+          }}
+        >
+          <Button
+            icon
             color="green"
             onClick={addTransfer}
-            style={{ 
-              width: '32px', 
-              height: '32px', 
+            style={{
+              width: "32px",
+              height: "32px",
               padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center'
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
             }}
           >
             <Icon name="plus" />
           </Button>
         </div>
       </Form>
+
       <Header as="h4" style={{ marginTop: 30 }}>
         Calldata
       </Header>
@@ -308,11 +435,12 @@ const ProxyComponent = ({ network }) => {
               top: 10,
               left: 0,
               right: 0,
-              margin: "auto"
+              margin: "auto",
             }}
           />
         )}
       </div>
+
       {calldata && (
         <div style={{ marginTop: 16 }}>
           <a
@@ -324,6 +452,7 @@ const ProxyComponent = ({ network }) => {
           </a>
         </div>
       )}
+
       <Header as="h4" style={{ marginTop: 30 }}>
         Error
       </Header>
