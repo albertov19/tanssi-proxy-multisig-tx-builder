@@ -29,7 +29,7 @@ const chains: Record<NetworkKey, { ws: string; token: string }> = {
 };
 
 // simple debounce hook (value -> debouncedValue after delay)
-function useDebounce<T>(value: T, delay = 500) {
+function useDebounce<T>(value: T, delay = 750) {
   const [debounced, setDebounced] = React.useState(value);
   useEffect(() => {
     const id = setTimeout(() => setDebounced(value), delay);
